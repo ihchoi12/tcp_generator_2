@@ -110,7 +110,7 @@ void start_client(uint16_t portid) {
 	struct rte_mbuf *pkt;
 	tcp_control_block_t *block;
 	struct rte_mbuf *pkts[BURST_SIZE];
-
+	
 	for(int i = 0; i < nr_flows; i++) {
 		// get the TCP control block for the flow
 		block = &tcp_control_blocks[i];
@@ -170,7 +170,6 @@ void start_client(uint16_t portid) {
 	// Discard 3-way handshake packets in the DPDK metrics
 	rte_eth_stats_reset(portid);
 	rte_eth_xstats_reset(portid);
-	
 	rte_compiler_barrier();
 }
 
@@ -303,6 +302,7 @@ static int lcore_tx(void *arg) {
 		if(unlikely(nb_tx != nb_pkts)) {
 			rte_exit(EXIT_FAILURE, "Cannot send the target packets.\n");
 		}
+		// printf("%lu %lu %lu\n", nb_tx, nb_pkts, total_tx);
 
 		// update the counter
 		nb_pkts = 0;
