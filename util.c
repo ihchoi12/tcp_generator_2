@@ -222,10 +222,13 @@ void print_stats_output() {
 		node_t *cur;
 		for(; j < incoming_idx; j++) {
 			cur = &incoming[j];
-
+			if(cur->timestamp_rx < cur->timestamp_tx){
+				continue;
+			}
 			fprintf(fp, "%lu\t%lu\n",
 				cur->flow_id,
-				((uint64_t)((cur->timestamp_rx - cur->timestamp_tx)/((double)TICKS_PER_US/1000)))
+				(cur->timestamp_rx - cur->timestamp_tx)
+				// ((uint64_t)((cur->timestamp_rx - cur->timestamp_tx)/((double)TICKS_PER_US/1000)))
 			);
 		}
 	}
@@ -297,6 +300,6 @@ inline void fill_payload_pkt(struct rte_mbuf *pkt, uint32_t idx, uint64_t value)
 uint64_t get_time_ns()
 {
 	struct timespec ts;
-	clock_gettime( CLOCK_REALTIME, &ts);
-	return ts.tv_nsec + (ts.tv_sec * 1000000000);
+	clock_gettime( CLOCK_MONOTONIC, &ts);
+	return (uint64_t)ts.tv_nsec + ((uint64_t)ts.tv_sec * 1000000000);
 }
