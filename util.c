@@ -292,3 +292,11 @@ inline void fill_payload_pkt(struct rte_mbuf *pkt, uint32_t idx, uint64_t value)
 
 	((uint64_t*) payload)[idx] = value;
 }
+
+/* return current time in ns */
+uint64_t get_time_ns()
+{
+	struct timespec ts;
+	clock_gettime( CLOCK_REALTIME, &ts);
+	return ts.tv_nsec + (ts.tv_sec * 1000000000);
+}

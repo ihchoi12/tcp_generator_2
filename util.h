@@ -20,6 +20,7 @@
 #include <rte_malloc.h>
 #include <rte_cfgfile.h>
 #include <rte_mempool.h>
+#include <time.h>
 
 // Constants
 #define EPSILON				0.00001
@@ -81,5 +82,6 @@ void create_interarrival_array();
 void create_flow_indexes_array();
 int app_parse_args(int argc, char **argv);
 void fill_payload_pkt(struct rte_mbuf *pkt, uint32_t idx, uint64_t value);
+uint64_t get_time_ns();
 
 #endif // __UTIL_H__

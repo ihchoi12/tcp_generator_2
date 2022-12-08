@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <time.h>
 
 #include "util.h"
 #include "tcp_util.h"
@@ -225,9 +226,8 @@ static int lcore_rx(void *arg) {
 	while(!quit_rx) {
 		// retrieve packets from the NIC
 		nb_rx = rte_eth_rx_burst(portid, qid, pkts, BURST_SIZE);
-
-		// retrive the current timestamp
-		now = rte_rdtsc();
+		// retrive the current timestamp 
+		now = get_time_ns();
 		for(int i = 0; i < nb_rx; i++) {
 			// fill the timestamp into packet payload
 			fill_payload_pkt(pkts[i], 1, now);
@@ -254,7 +254,7 @@ static int lcore_tx(void *arg) {
 	struct rte_mbuf *pkts[BURST_SIZE];
 	uint16_t *flow_indexes = flow_indexes_array[qid];
 	uint64_t *interarrival_gap = interarrival_array[qid];
-	uint64_t next_tsc = rte_rdtsc() + interarrival_gap[i];
+	uint64_t next_tsc = get_time_ns() + interarrival_gap[i];
 
 	while(!quit_tx) { 
 		// reach the limit
@@ -282,7 +282,7 @@ static int lcore_tx(void *arg) {
 		}
 
 		// unable to keep up with the requested rate
-		if(unlikely(rte_rdtsc() > (next_tsc + 5*TICKS_PER_US))) {
+		if(unlikely(get_time_ns() > next_tsc)) {
 			// count this batch as dropped
 			nr_never_sent++;
 			next_tsc += interarrival_gap[i++];
@@ -295,7 +295,7 @@ static int lcore_tx(void *arg) {
 		}
 
 		// sleep for while
-		while (rte_rdtsc() < next_tsc) {  }
+		while (get_time_ns() < next_tsc) {  }
 
 		// send the batch
 		nb_tx = rte_eth_tx_burst(portid, qid, pkts, nb_pkts);
