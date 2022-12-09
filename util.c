@@ -46,7 +46,7 @@ void allocate_incoming_nodes() {
 // Allocate and Create an array for all interarrival packets for rate specified using Exponential Distribution
 void create_interarrival_array() {
 	uint64_t rate_per_queue = rate/nr_queues;
-	double lambda = 1.0/(1000000.0/rate_per_queue);
+	double lambda = (double)rate_per_queue/(double)BILLION;  //1.0/(1000000000.0/rate_per_queue);
 	uint64_t nr_elements_per_queue = rate_per_queue * duration * nr_executions;
 
 	interarrival_array = (uint64_t**) malloc(nr_queues * sizeof(uint64_t*));
@@ -61,9 +61,11 @@ void create_interarrival_array() {
 		}
 		uint64_t *interarrival_gap = interarrival_array[i];
 		for(uint64_t j = 0; j < nr_elements_per_queue; j++) {
-			interarrival_gap[j] = sample(lambda) * TICKS_PER_US;
+			interarrival_gap[j] = sample(lambda);
+			// printf("%lu\n", interarrival_gap[j]);
 		}
 	} 
+	// exit(1);
 }
 
 // Allocate and Create an array for all flow indentier to send to the server
@@ -181,17 +183,23 @@ int app_parse_args(int argc, char **argv) {
 
 // Wait for the duration parameter
 void wait_timeout() {
-	uint64_t t0 = rte_rdtsc();
-	while((rte_rdtsc() - t0) < (duration * nr_executions * 1000000 * TICKS_PER_US)) { }
-
-	// wait for remaining
-	t0 = rte_rdtsc_precise();
-	while((rte_rdtsc() - t0) < (5 * 1000000 * TICKS_PER_US)) { }
-
+	uint64_t t0 = get_time_ns();
+	while(get_time_ns() - t0 < duration * BILLION) { }
 	// set quit flag for all internal cores
 	quit_rx = 1;
 	quit_tx = 1;
 	quit_rx_ring = 1;
+	// uint64_t t0 = rte_rdtsc();
+	// while((rte_rdtsc() - t0) < (duration * nr_executions * 1000000 * TICKS_PER_US)) { }
+
+	// /* wait for remaining */
+	// t0 = rte_rdtsc_precise();
+	// while((rte_rdtsc() - t0) < (5 * 1000000 * TICKS_PER_US)) { }
+	
+	// /* set quit flag for all internal cores */
+	// quit_rx = 1;
+	// quit_tx = 1;
+	// quit_rx_ring = 1;
 }
 
 // Compare two double values (for qsort function)
@@ -301,5 +309,5 @@ uint64_t get_time_ns()
 {
 	struct timespec ts;
 	clock_gettime( CLOCK_MONOTONIC, &ts);
-	return (uint64_t)ts.tv_nsec + ((uint64_t)ts.tv_sec * 1000000000);
+	return (uint64_t)ts.tv_nsec + ((uint64_t)ts.tv_sec * BILLION);
 }
