@@ -184,8 +184,8 @@ int app_parse_args(int argc, char **argv) {
 // Wait for the duration parameter
 void wait_timeout() {
 	uint64_t t0 = get_time_ns();
-	while(get_time_ns() - t0 < duration * BILLION) { }
-	// set quit flag for all internal cores
+	while(get_time_ns() - t0 < duration * nr_executions * BILLION) { }
+	/* set quit flag for all internal cores */
 	quit_rx = 1;
 	quit_tx = 1;
 	quit_rx_ring = 1;
