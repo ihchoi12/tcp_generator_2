@@ -27,7 +27,7 @@
 #define MAXSTRLEN			128
 #define IPV4_ADDR(a, b, c, d)		(((d & 0xff) << 24) | ((c & 0xff) << 16) | ((b & 0xff) << 8) | (a & 0xff))
 #define BILLION 					1000000000
-
+#define THROUGHPUT_INTERVAL			5 // ms
 typedef struct lcore_parameters {
 	uint8_t qid;
 	uint16_t portid;
@@ -58,6 +58,7 @@ extern uint32_t tcp_payload_size;
 extern uint64_t TICKS_PER_US;
 extern uint16_t **flow_indexes_array;
 extern uint64_t **interarrival_array;
+extern uint64_t *throughputs;
 
 extern uint16_t dst_tcp_port;
 extern uint32_t dst_ipv4_addr;
@@ -80,6 +81,7 @@ void process_config_file();
 double sample(double lambda);
 void allocate_incoming_nodes();
 void create_interarrival_array();
+void prepare_throughput_tracking();
 void create_flow_indexes_array();
 int app_parse_args(int argc, char **argv);
 void fill_payload_pkt(struct rte_mbuf *pkt, uint32_t idx, uint64_t value);

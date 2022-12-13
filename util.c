@@ -68,7 +68,24 @@ void create_interarrival_array() {
 	// exit(1);
 }
 
-// Allocate and Create an array for all flow indentier to send to the server
+/* Prepare throughput tracking array */
+void prepare_throughput_tracking() {
+    uint64_t nr_ms = duration * (1000 / THROUGHPUT_INTERVAL) * nr_executions * 1.2;
+
+    throughputs = (uint64_t*) malloc(nr_ms * sizeof(uint64_t));
+    if(throughputs == NULL) {
+        rte_exit(EXIT_FAILURE, "Cannot alloc the throughputs array.\n");
+    }
+
+    for(uint64_t i = 0; i < nr_ms; i++) {
+		throughputs[i] = 0;
+		// printf("%lu\n", interarrival_gap[i]);
+    } 
+	// printf("TICKS_PER_US: %lu", TICKS_PER_US);
+	// exit(1);
+}
+
+/* Allocate and Create an array for all flow indentier to send to the server */
 void create_flow_indexes_array() {
 	uint32_t nbits = (uint32_t) log2(nr_queues);
 	uint64_t rate_per_queue = rate/nr_queues;
@@ -97,6 +114,7 @@ void clean_heap() {
 	free(incoming_idx_array);
 	free(flow_indexes_array);
 	free(interarrival_array);
+	free(throughputs);
 }
 
 // Usage message
@@ -243,6 +261,20 @@ void print_stats_output() {
 
 	// close the file
 	fclose(fp);
+
+
+	strcat(output_file, ".tput");
+	FILE *fp_tput = fopen(output_file, "w");
+	if(fp_tput == NULL) {
+		rte_exit(EXIT_FAILURE, "Cannot open the throughput tracking log file.\n");
+	}
+	/* drop the first 50% for warming up */
+	uint64_t i = duration * (1000 / THROUGHPUT_INTERVAL);
+	for(; i < duration * (1000 / THROUGHPUT_INTERVAL) * nr_executions; i++) {
+		fprintf(fp_tput, "%lu %lu\n", i * THROUGHPUT_INTERVAL, throughputs[i]);
+	}
+	/* close the file */
+	fclose(fp_tput);
 }
 
 // Process the config file
