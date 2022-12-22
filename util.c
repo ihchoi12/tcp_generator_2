@@ -2,69 +2,102 @@
 
 char output_file[MAXSTRLEN];
 
-/* Sample the value using Exponential Distribution */
+// Sample the value using Exponential Distribution
 double sample(double lambda) {
-    double u = ((double) rte_rand()) / ((uint64_t) -1);
+   	double u = ((double) rte_rand()) / ((uint64_t) -1);
 
-    return -log(1 - u) / lambda;
+	return -log(1 - u) / lambda;
 }
 
-/* Convert string type into int type*/
+// Convert string type into int type
 static uint32_t process_int_arg(const char *arg) {
 	char *end = NULL;
 
 	return strtoul(arg, &end, 10);
 }
 
-/* Allocate all nodes for incoming packets (+ 20%) */
+// Allocate all nodes for incoming packets (+ 20%)
 void allocate_incoming_nodes() {
-	uint64_t nr_elements = (rate * duration * nr_executions) * 1.2;
+	uint64_t rate_per_queue = rate/nr_queues;
+	uint64_t nr_elements_per_queue = (rate_per_queue * duration * nr_executions) * 1.2;
 
-	incoming = (node_t*) malloc(nr_elements * sizeof(node_t));
-	if(incoming == NULL) {
+	incoming_array = (node_t**) malloc(nr_queues * sizeof(node_t*));
+	if(incoming_array == NULL) {
 		rte_exit(EXIT_FAILURE, "Cannot alloc the incoming array.\n");
 	}
 
-	incoming_idx = 0;
+	for(uint64_t i = 0; i < nr_queues; i++) {
+		incoming_array[i] = (node_t*) malloc(nr_elements_per_queue * sizeof(node_t));
+		if(incoming_array[i] == NULL) {
+			rte_exit(EXIT_FAILURE, "Cannot alloc the incoming array.\n");
+		}
+	}
+
+	incoming_idx_array = (uint64_t*) malloc(nr_queues * sizeof(uint64_t));
+	if(incoming_idx_array == NULL) {
+		rte_exit(EXIT_FAILURE, "Cannot alloc the incoming_idx array.\n");
+	}
+
+	for(uint64_t i = 0; i < nr_queues; i++) {
+		incoming_idx_array[i] = 0;
+	}
 } 
 
-/* Allocate and Create an array for all interarrival packets for rate specified using Exponential Distribution */
+// Allocate and Create an array for all interarrival packets for rate specified using Exponential Distribution
 void create_interarrival_array() {
-    double lambda = 1.0/(1000000.0/rate);
-	uint64_t nr_elements = rate * duration * nr_executions;
+	uint64_t rate_per_queue = rate/nr_queues;
+	double lambda = 1.0/(1000000.0/rate_per_queue);
+	uint64_t nr_elements_per_queue = rate_per_queue * duration * nr_executions;
 
-    interarrival_gap = (uint64_t*) malloc(nr_elements * sizeof(uint64_t));
-    if(interarrival_gap == NULL) {
-        rte_exit(EXIT_FAILURE, "Cannot alloc the interarrival_gap array.\n");
-    }
+	interarrival_array = (uint64_t**) malloc(nr_queues * sizeof(uint64_t*));
+	if(interarrival_array == NULL) {
+		rte_exit(EXIT_FAILURE, "Cannot alloc the interarrival_gap array.\n");
+	}
 
-    for(uint64_t i = 0; i < nr_elements; i++) {
-        interarrival_gap[i] = sample(lambda) * TICKS_PER_US;
-    } 
+	for(uint64_t i = 0; i < nr_queues; i++) {
+		interarrival_array[i] = (uint64_t*) malloc(nr_elements_per_queue * sizeof(uint64_t));
+		if(interarrival_array[i] == NULL) {
+			rte_exit(EXIT_FAILURE, "Cannot alloc the interarrival_gap array.\n");
+		}
+		uint64_t *interarrival_gap = interarrival_array[i];
+		for(uint64_t j = 0; j < nr_elements_per_queue; j++) {
+			interarrival_gap[j] = sample(lambda) * TICKS_PER_US;
+		}
+	} 
 }
 
-/* Allocate and Create an array for all flow indentier to send to the server */
+// Allocate and Create an array for all flow indentier to send to the server
 void create_flow_indexes_array() {
-	uint64_t nr_elements = rate * duration * nr_executions;
+	uint32_t nbits = (uint32_t) log2(nr_queues);
+	uint64_t rate_per_queue = rate/nr_queues;
+	uint64_t nr_elements_per_queue = rate_per_queue * duration * nr_executions;
 
-    flow_indexes = (uint16_t*) malloc(nr_elements * sizeof(uint16_t));
-    if(flow_indexes == NULL) {
-        rte_exit(EXIT_FAILURE, "Cannot alloc the flow_indexes array.\n");
-    }
+	flow_indexes_array = (uint16_t**) malloc(nr_queues * sizeof(uint16_t*));
+	if(flow_indexes_array == NULL) {
+		rte_exit(EXIT_FAILURE, "Cannot alloc the flow_indexes array.\n");
+	}
 
-	for(int i = 0; i < nr_elements; i++) {
-		flow_indexes[i] = rte_rand() % nr_flows;
+	for(uint64_t i = 0; i < nr_queues; i++) {
+		flow_indexes_array[i] = (uint16_t*) malloc(nr_elements_per_queue * sizeof(uint16_t));
+		if(flow_indexes_array[i] == NULL) {
+			rte_exit(EXIT_FAILURE, "Cannot alloc the flow_indexes array.\n");
+		}
+		uint16_t *flow_indexes = flow_indexes_array[i];
+		for(int j = 0; j < nr_elements_per_queue; j++) {
+			flow_indexes[j] = ((rte_rand() << nbits) | i) % nr_flows;
+		}
 	}
 }
 
-/* Clean up all allocate structures */
+// Clean up all allocate structures
 void clean_heap() {
-	free(incoming);
-	free(flow_indexes);
-    free(interarrival_gap);
+	free(incoming_array);
+	free(incoming_idx_array);
+	free(flow_indexes_array);
+	free(interarrival_array);
 }
 
-/* Usage message */
+// Usage message
 static void usage(const char *prgname) {
 	printf("%s [EAL options] -- \n"
 		"  -r RATE: rate in pps\n"
@@ -72,13 +105,13 @@ static void usage(const char *prgname) {
 		"  -q QUEUES: number of queues\n"
 		"  -s SIZE: frame size in bytes\n"
 		"  -t TIME: time in seconds to send packets\n"
-		"  -c FILENAME: name of configuration file\n"
+		"  -c FILENAME: name of the configuration file\n"
 		"  -o FILENAME: name of the output file\n",
 		prgname
 	);
 }
 
-/* Parse the argument given in the command line of the application */
+// Parse the argument given in the command line of the application
 int app_parse_args(int argc, char **argv) {
 	int opt, ret;
 	char **argvopt;
@@ -87,36 +120,41 @@ int app_parse_args(int argc, char **argv) {
 	nr_executions = 2;
 
 	argvopt = argv;
-	while ((opt = getopt(argc, argvopt, "r:f:s:p:t:c:o:")) != EOF) {
+	while ((opt = getopt(argc, argvopt, "r:f:s:q:p:t:c:o:")) != EOF) {
 		switch (opt) {
-		/* rate (pps) */
+		// rate (pps)
 		case 'r':
 			rate = process_int_arg(optarg);
 			break;
 
-		/* flows (un.) */
+		// flows
 		case 'f':
 			nr_flows = process_int_arg(optarg);
 			break;
 
-		/* frame size (bytes) */
+		// frame size (bytes)
 		case 's':
 			frame_size = process_int_arg(optarg);
 			tcp_payload_size = (frame_size - sizeof(struct rte_ether_hdr) - sizeof(struct rte_ipv4_hdr) - sizeof(struct rte_tcp_hdr));
 			break;
 
-		/* duration (s) */
+		// queues
+		case 'q':
+			nr_queues = process_int_arg(optarg);
+			min_lcores = 3 * nr_queues + 1;
+			break;
+
+		// duration (s)
 		case 't':
 			duration = process_int_arg(optarg);
 			break;
 
-		/* config file name */
+		// config file name
 		case 'c':
-			/* process the config file */
 			process_config_file(optarg);
 			break;
 		
-		/* output mode */
+		// output mode
 		case 'o':
 			strcpy(output_file, optarg);
 			break;
@@ -127,8 +165,13 @@ int app_parse_args(int argc, char **argv) {
 		}
 	}
 
-	if (optind >= 0)
+	if(optind >= 0) {
 		argv[optind-1] = prgname;
+	}
+
+	if(nr_flows < nr_queues) {
+		rte_exit(EXIT_FAILURE, "The number of flows should be bigger than the number of queues.\n");
+	}
 
 	ret = optind-1;
 	optind = 1;
@@ -136,22 +179,22 @@ int app_parse_args(int argc, char **argv) {
 	return ret;
 }
 
-/* Wait for the duration parameter */
+// Wait for the duration parameter
 void wait_timeout() {
 	uint64_t t0 = rte_rdtsc();
 	while((rte_rdtsc() - t0) < (duration * nr_executions * 1000000 * TICKS_PER_US)) { }
 
-	/* wait for remaining */
+	// wait for remaining
 	t0 = rte_rdtsc_precise();
 	while((rte_rdtsc() - t0) < (5 * 1000000 * TICKS_PER_US)) { }
 
-	/* set quit flag for all internal cores */
+	// set quit flag for all internal cores
 	quit_rx = 1;
 	quit_tx = 1;
 	quit_rx_ring = 1;
 }
 
-/* Compare two double values (for qsort function) */
+// Compare two double values (for qsort function)
 int cmp_func(const void * a, const void * b) {
 	double da = (*(double*)a);
 	double db = (*(double*)b);
@@ -159,43 +202,47 @@ int cmp_func(const void * a, const void * b) {
 	return (da - db) > ( (fabs(da) < fabs(db) ? fabs(db) : fabs(da)) * EPSILON);
 }
 
-/* Print stats into output file */
+// Print stats into output file
 void print_stats_output() {
-	/* open the file */
+	// open the file
 	FILE *fp = fopen(output_file, "w");
 	if(fp == NULL) {
 		rte_exit(EXIT_FAILURE, "Cannot open the output file.\n");
 	}
 
-	/* drop the first 50% packets for warming up */
-	uint64_t i = 0.5 * incoming_idx;
+	for(uint32_t i = 0; i < nr_queues; i++) {
+		// get the pointers
+		node_t *incoming = incoming_array[i];
+		uint32_t incoming_idx = incoming_idx_array[i];
 
-	/* print if there was the never_sent packets */
-	node_t *prev = &incoming[i-1];
-	fprintf(fp, "%lu\n", incoming[incoming_idx-1].nr_never_sent - prev->nr_never_sent);
+		// drop the first 50% packets for warming up
+		uint64_t j = 0.5 * incoming_idx;
 
-	/* print the RTT latency in (ns) */
-	node_t *cur;
-	for(; i < incoming_idx; i++) {
-		cur = &incoming[i];
+		// print the RTT latency in (ns)
+		node_t *cur;
+		for(; j < incoming_idx; j++) {
+			cur = &incoming[j];
 
-		fprintf(fp, "%lu\n",
-			((uint64_t)((cur->timestamp_rx - cur->timestamp_tx)/((double)TICKS_PER_US/1000)))
-		);
+			fprintf(fp, "%lu\t%lu\n",
+				cur->flow_id,
+				((uint64_t)((cur->timestamp_rx - cur->timestamp_tx)/((double)TICKS_PER_US/1000)))
+			);
+		}
 	}
 
-	/* close the file */
+	// close the file
 	fclose(fp);
 }
 
+// Process the config file
 void process_config_file(char *cfg_file) {
-	/* open the file */
+	// open the file
 	struct rte_cfgfile *file = rte_cfgfile_load(cfg_file, 0);
 	if(file == NULL) {
 		rte_exit(EXIT_FAILURE, "Cannot load configuration profile %s\n", cfg_file);
 	}
 
-	/* load ethernet addresses */
+	// load ethernet addresses
 	char *entry = (char*) rte_cfgfile_get_entry(file, "ethernet", "src");
 	if(entry) {
 		rte_ether_unformat_addr((const char*) entry, &src_eth_addr);
@@ -205,7 +252,7 @@ void process_config_file(char *cfg_file) {
 		rte_ether_unformat_addr((const char*) entry, &dst_eth_addr);
 	}
 
-	/* load ipv4 addresses */
+	// load ipv4 addresses
 	entry = (char*) rte_cfgfile_get_entry(file, "ipv4", "src");
 	if(entry) {
 		uint8_t b3, b2, b1, b0;
@@ -219,7 +266,7 @@ void process_config_file(char *cfg_file) {
 		dst_ipv4_addr = IPV4_ADDR(b3, b2, b1, b0);
 	}
 
-	/* load TCP destination port */
+	// load TCP destination port
 	entry = (char*) rte_cfgfile_get_entry(file, "tcp", "dst");
 	if(entry) {
 		uint16_t port;
@@ -227,19 +274,19 @@ void process_config_file(char *cfg_file) {
 		dst_tcp_port = port;
 	}
 
-	/* local server info */
-	entry = (char*) rte_cfgfile_get_entry(file, "server", "nr_apps");
+	// local server info
+	entry = (char*) rte_cfgfile_get_entry(file, "server", "nr_servers");
 	if(entry) {
 		uint16_t n;
 		sscanf(entry, "%hu", &n);
-		nr_apps = n;
+		nr_servers = n;
 	}
 
-	/* close the file */
+	// close the file
 	rte_cfgfile_close(file);
 }
 
-/* Fill the data into packet payload properly */
+// Fill the data into packet payload properly
 inline void fill_payload_pkt(struct rte_mbuf *pkt, uint32_t idx, uint64_t value) {
 	uint8_t *payload = (uint8_t*) rte_pktmbuf_mtod_offset(pkt, uint8_t*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_tcp_hdr));
 

@@ -16,42 +16,42 @@
 #include <rte_malloc.h>
 #include <rte_mempool.h>
 
-/* TCP State enum */
+// TCP State enum
 typedef enum {
-    TCP_INIT,
-    TCP_LISTEN,
-    TCP_SYN_SENT,
-    TCP_SYN_RECV,
-    TCP_ESTABLISHED,
-    TCP_FIN_WAIT_I,
-    TCP_FIN_WAIT_II,
-    TCP_LAST_ACK,
-    TCP_CLOSING,
-    TCP_TIME_WAIT,
-    TCP_CLOSE_WAIT,
-    TCP_CLOSED,
+	TCP_INIT,
+    	TCP_LISTEN,
+    	TCP_SYN_SENT,
+    	TCP_SYN_RECV,
+    	TCP_ESTABLISHED,
+    	TCP_FIN_WAIT_I,
+    	TCP_FIN_WAIT_II,
+    	TCP_LAST_ACK,
+    	TCP_CLOSING,
+    	TCP_TIME_WAIT,
+    	TCP_CLOSE_WAIT,
+    	TCP_CLOSED,
 } tcb_state_t;
 
-/* TCP Control Block */
+// TCP Control Block
 typedef struct tcp_control_block_s {
-	/* used only by the TX */
-	uint32_t				        tcb_next_seq;
+	// used only by the TX
+	uint32_t		        		tcb_next_seq;
 	uint32_t 						src_addr;
 	uint32_t 						dst_addr;
 	uint16_t						src_port;
 	uint16_t						dst_port;
 
-	/* used only by the RX */
+	// used only by the RX
 	uint32_t						last_ack_recv;
 
-	/* used by both RX/TX */
+	// used by both RX/TX 
 	rte_atomic32_t 					tcb_next_ack;
 	rte_atomic16_t 					tcb_state;
 	rte_atomic16_t 					tcb_rwin;
 	
-	/* used only in the beginning */
-	uint32_t 						tcb_seq_ini;
-	uint32_t 						tcb_ack_ini;
+	// used only in the beginning
+	uint32_t						tcb_seq_ini;
+	uint32_t						tcb_ack_ini;
 	struct rte_flow_item_eth		flow_eth;
 	struct rte_flow_item_eth		flow_eth_mask;
 	struct rte_flow_item_ipv4		flow_ipv4;
@@ -64,16 +64,19 @@ typedef struct tcp_control_block_s {
 } __rte_cache_aligned tcp_control_block_t;
 
 #define ETH_IPV4_TYPE_NETWORK		0x0008
+#define HANDSHAKE_TIMEOUT_IN_US		500
+#define HANDSHAKE_RETRANSMISSION	6
 #define SEQ_LEQ(a,b)		        ((int32_t)((a)-(b)) <= 0)
 
-extern struct rte_ether_addr dst_eth_addr;
-extern struct rte_ether_addr src_eth_addr;
+extern uint16_t dst_tcp_port;
 extern uint32_t dst_ipv4_addr;
 extern uint32_t src_ipv4_addr;
-extern uint16_t dst_tcp_port;
+extern struct rte_ether_addr dst_eth_addr;
+extern struct rte_ether_addr src_eth_addr;
 
-extern uint16_t nr_apps;
 extern uint64_t nr_flows;
+extern uint64_t nr_queues;
+extern uint16_t nr_servers;
 extern uint32_t frame_size;
 extern uint32_t tcp_payload_size;
 extern struct rte_mempool *pktmbuf_pool;

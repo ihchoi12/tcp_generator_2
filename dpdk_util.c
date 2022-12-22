@@ -1,29 +1,23 @@
 #include "dpdk_util.h"
 
-/* Initialize DPDK configuration */
+// Initialize DPDK configuration
 void init_DPDK(uint16_t portid, uint64_t nr_queues) {
-	if(rte_lcore_count() < MIN_LCORES) {
-		rte_exit(EXIT_FAILURE, "No available worker core!\n");
+	// check the number of DPDK logical cores
+	if(rte_lcore_count() < min_lcores) {
+		rte_exit(EXIT_FAILURE, "No available worker cores!\n");
 	}
 
-	/* init the seed for random numbers */
+	// init the seed for random numbers
 	rte_srand(SEED);
 
-	/* get the number of cycles per us */
+	// get the number of cycles per us
 	TICKS_PER_US = rte_get_timer_hz() / 1000000;
 
-	/* flush all flows of the NIC */
+	// flush all flows of the NIC
 	struct rte_flow_error error;
 	rte_flow_flush(portid, &error);
 
-	/* allocate the atomic variables */
-	nr_tx = rte_malloc(NULL, sizeof(rte_atomic64_t), RTE_CACHE_LINE_SIZE);
-	if(nr_tx == NULL) {
-		rte_exit(EXIT_FAILURE, "Cannot alloc the experiment id.\n");
-	}
-	rte_atomic64_init(nr_tx);
-
-	/* allocate the packet pool */
+	// allocate the packet pool
 	char s[64];
 	snprintf(s, sizeof(s), "mbuf_pool");
 	pktmbuf_pool = rte_pktmbuf_pool_create(s, PKTMBUF_POOL_ELEMENTS, MEMPOOL_CACHE_SIZE, 0,	RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
@@ -32,63 +26,53 @@ void init_DPDK(uint16_t portid, uint64_t nr_queues) {
 		rte_exit(EXIT_FAILURE, "Cannot init mbuf pool on socket %d\n", rte_socket_id());
 	}
 
-	/* allocate the ring to RX threads */
-	snprintf(s, sizeof(s), "ring_rx");
-	// rx_ring = rte_ring_create(s, RING_ELEMENTS, rte_socket_id(), RING_F_SP_ENQ|RING_F_SC_DEQ);
-	rx_ring = rte_ring_create(s, RING_ELEMENTS, rte_socket_id(), RING_F_MP_RTS_ENQ|RING_F_SC_DEQ);
-
-	if(rx_ring == NULL) {
-		rte_exit(EXIT_FAILURE, "Cannot create the ring on socket %d\n", rte_socket_id());
-	}
-
-	/* initialize the DPDK port */
+	// initialize the DPDK port
 	uint16_t nb_rx_queue = nr_queues;
 	uint16_t nb_tx_queue = nr_queues;
 
 	if(init_DPDK_port(portid, nb_rx_queue, nb_tx_queue, pktmbuf_pool) != 0) {
 		rte_exit(EXIT_FAILURE, "Cannot init port %"PRIu8 "\n", 0);
-    }
+	}
 }
 
-/* Initialize the DPDK port */
+// Initialize the DPDK port
 int init_DPDK_port(uint16_t portid, uint16_t nb_rx_queue, uint16_t nb_tx_queue, struct rte_mempool *mbuf_pool) {
-    /* configurable number of RX/TX ring descriptors */
-    uint16_t nb_rxd = 1024;
-    uint16_t nb_txd = 4096;
+	// configurable number of RX/TX ring descriptors
+	uint16_t nb_rxd = 4096;
+	uint16_t nb_txd = 4096;
 
-	/* get port_conf default */
+	// get default port_conf
 	struct rte_eth_conf port_conf = {
-        .rxmode = {
-            .mq_mode = nb_rx_queue > 1 ? ETH_MQ_RX_RSS : ETH_MQ_RX_NONE,
-            .max_rx_pkt_len = RTE_ETHER_MAX_LEN,
-            .split_hdr_size = 0,
-            .offloads = DEV_RX_OFFLOAD_CHECKSUM,
-        },
-        .rx_adv_conf = {
-            .rss_conf = {
-                .rss_key = NULL,
-                .rss_hf = ETH_RSS_TCP,
-            },
-        },
-        .txmode = {
-            .mq_mode = ETH_MQ_TX_NONE,
-            .offloads = DEV_TX_OFFLOAD_TCP_CKSUM|DEV_TX_OFFLOAD_IPV4_CKSUM|DEV_TX_OFFLOAD_MBUF_FAST_FREE,
-        },
-    };
+		.rxmode = {
+			.mq_mode = nb_rx_queue > 1 ? RTE_ETH_MQ_RX_RSS : RTE_ETH_MQ_RX_NONE,
+			.max_lro_pkt_size = RTE_ETHER_MAX_LEN,
+			.offloads = RTE_ETH_RX_OFFLOAD_CHECKSUM,
+		},
+		.rx_adv_conf = {
+			.rss_conf = {
+				.rss_key = NULL,
+				.rss_hf = RTE_ETH_RSS_TCP,
+			},
+		},
+		.txmode = {
+			.mq_mode = RTE_ETH_MQ_TX_NONE,
+			.offloads = RTE_ETH_TX_OFFLOAD_TCP_CKSUM|RTE_ETH_TX_OFFLOAD_IPV4_CKSUM|RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE,
+		},
+	};
 
-	/* configure the NIC */
+	// configure the NIC
 	int retval = rte_eth_dev_configure(portid, nb_rx_queue, nb_tx_queue, &port_conf);
 	if(retval != 0) {
 		return retval;
 	}
 
-	/* adjust and set up the number of RX/TX descriptors */
+	// adjust and set up the number of RX/TX descriptors
 	retval = rte_eth_dev_adjust_nb_rx_tx_desc(portid, &nb_rxd, &nb_txd);
 	if(retval != 0) {
 		return retval;
 	}
 
-	/* setup the RX queues */
+	// setup the RX queues
 	for(int q = 0; q < nb_rx_queue; q++) {
 		retval = rte_eth_rx_queue_setup(portid, q, nb_rxd, rte_eth_dev_socket_id(portid), NULL, mbuf_pool);
 		if (retval < 0) {
@@ -96,7 +80,7 @@ int init_DPDK_port(uint16_t portid, uint16_t nb_rx_queue, uint16_t nb_tx_queue, 
 		}
 	}
 
-	/* setup the TX queues */
+	// setup the TX queues
 	for(int q = 0; q < nb_tx_queue; q++) {
 		retval = rte_eth_tx_queue_setup(portid, q, nb_txd, rte_eth_dev_socket_id(portid), NULL);
 		if (retval < 0) {
@@ -104,13 +88,13 @@ int init_DPDK_port(uint16_t portid, uint16_t nb_rx_queue, uint16_t nb_tx_queue, 
 		}
 	}
 
-	/* start the Ethernet port. */
+	// start the Ethernet port
 	retval = rte_eth_dev_start(portid);
 	if(retval < 0) {
 		return retval;
 	}
 
-	// /* enable the promiscuous mode */
+	// // enable the promiscuous mode
 	// retval = rte_eth_promiscuous_enable(portid);
 	// if(retval != 0)
 	// 	return retval;
@@ -118,13 +102,13 @@ int init_DPDK_port(uint16_t portid, uint16_t nb_rx_queue, uint16_t nb_tx_queue, 
 	return 0;
 }
 
-/* Print the DPDK stats */
+// Print the DPDK stats
 void print_dpdk_stats(uint32_t portid) {
 	struct rte_eth_stats eth_stats;
 	int retval = rte_eth_stats_get(portid, &eth_stats);
 	if(retval != 0) {
 		rte_exit(EXIT_FAILURE, "Unable to get stats from portid\n");
-    }
+	}
 	
 	printf("\n\nDPDK RX Stats:\n");
 	printf("ipackets: %lu\n", eth_stats.ipackets);
@@ -139,41 +123,42 @@ void print_dpdk_stats(uint32_t portid) {
 	printf("oerror: %lu\n", eth_stats.oerrors);
 
 	struct rte_eth_xstat *xstats;
-    struct rte_eth_xstat_name *xstats_names;
+	struct rte_eth_xstat_name *xstats_names;
 	static const char *stats_border = "_______";
+
 	printf("\n\nPORT STATISTICS:\n================\n");
-    int len = rte_eth_xstats_get(portid, NULL, 0);
-    if(len < 0) {
-        rte_exit(EXIT_FAILURE, "rte_eth_xstats_get(%u) failed: %d", portid, len);
-    }
+	int len = rte_eth_xstats_get(portid, NULL, 0);
+	if(len < 0) {
+		rte_exit(EXIT_FAILURE, "rte_eth_xstats_get(%u) failed: %d", portid, len);
+	}
 
-    xstats = calloc(len, sizeof(*xstats));
-    if(xstats == NULL) {
-        rte_exit(EXIT_FAILURE, "Failed to calloc memory for xstats");
-    }
+	xstats = calloc(len, sizeof(*xstats));
+	if(xstats == NULL) {
+		rte_exit(EXIT_FAILURE, "Failed to calloc memory for xstats");
+	}
 
-    int ret = rte_eth_xstats_get(portid, xstats, len);
-    if(ret < 0 || ret > len) {
-        free(xstats);
-        rte_exit(EXIT_FAILURE, "rte_eth_xstats_get(%u) len%i failed: %d", portid, len, ret);
-    }
+	int ret = rte_eth_xstats_get(portid, xstats, len);
+	if(ret < 0 || ret > len) {
+		free(xstats);
+		rte_exit(EXIT_FAILURE, "rte_eth_xstats_get(%u) len%i failed: %d", portid, len, ret);
+	}
 
-    xstats_names = calloc(len, sizeof(*xstats_names));
-    if(xstats_names == NULL) {
-        free(xstats);
-        rte_exit(EXIT_FAILURE, "Failed to calloc memory for xstats_names");
-    }
+	xstats_names = calloc(len, sizeof(*xstats_names));
+	if(xstats_names == NULL) {
+		free(xstats);
+		rte_exit(EXIT_FAILURE, "Failed to calloc memory for xstats_names");
+	}
 
-    ret = rte_eth_xstats_get_names(portid, xstats_names, len);
-    if(ret < 0 || ret > len) {
-        free(xstats);
-        free(xstats_names);
-        rte_exit(EXIT_FAILURE, "rte_eth_xstats_get_names(%u) len%i failed: %d",  portid, len, ret);
-    }
+	ret = rte_eth_xstats_get_names(portid, xstats_names, len);
+	if(ret < 0 || ret > len) {
+		free(xstats);
+		free(xstats_names);
+		rte_exit(EXIT_FAILURE, "rte_eth_xstats_get_names(%u) len%i failed: %d",  portid, len, ret);
+	}
 
-    for(int i = 0; i < len; i++) {
-        if (xstats[i].value > 0) {
-            printf("Port %u: %s %s:\t\t%"PRIu64"\n",
+	for(int i = 0; i < len; i++) {
+		if(xstats[i].value > 0) {
+			printf("Port %u: %s %s:\t\t%"PRIu64"\n",
 				portid, stats_border,
 				xstats_names[i].name,
 				xstats[i].value
@@ -181,14 +166,11 @@ void print_dpdk_stats(uint32_t portid) {
 		}
 	}
 
-    free(xstats);
-    free(xstats_names);
+	free(xstats);
+	free(xstats_names);
 }
 
-/* Create and fill rte_flow to send to the NIC */
-/* Basically, the NIC will forward the packets from this flow to specify queue_id
- * and tags the packets with index of the flows array
- */
+// Create and fill rte_flow to send to the NIC
 void insert_flow(uint16_t portid, uint32_t i) {
 	int ret;
 	int act_idx = 0;
@@ -230,23 +212,39 @@ void insert_flow(uint16_t portid, uint32_t i) {
 	pattern[pattern_idx].type = RTE_FLOW_ITEM_TYPE_END;
 	pattern_idx++;
 
-	/* validate the rte_flow */
+	// validate the rte_flow
 	ret = rte_flow_validate(portid, &attr, pattern, action, &err);
-    if (ret < 0) {
-        RTE_LOG(ERR, TCP_GENERATOR, "Flow validation failed %s\n", err.message);
-        return;
-    }
+	if(ret < 0) {
+		RTE_LOG(ERR, TCP_GENERATOR, "Flow validation failed %s\n", err.message);
+		return;
+	}
 
-	/* create the flow and insert to the NIC */
-    struct rte_flow *rule = rte_flow_create(portid, &attr, pattern, action, &err);
-    if (rule == NULL) {
-        RTE_LOG(ERR, TCP_GENERATOR, "Flow creation return %s\n", err.message);
+	// create the flow and insert to the NIC
+	struct rte_flow *rule = rte_flow_create(portid, &attr, pattern, action, &err);
+	if (rule == NULL) {
+		RTE_LOG(ERR, TCP_GENERATOR, "Flow creation return %s\n", err.message);
 	}
 }
 
-/* clear all DPDK structures allocated */
+// create DPDK rings for the RX threads
+void create_dpdk_rings() {
+	char s[64];
+	for(uint32_t i = 0; i < nr_queues; i++) {
+		snprintf(s, sizeof(s), "ring_rx%u", i);
+		rx_rings[i] = rte_ring_create(s, RING_ELEMENTS, rte_socket_id(), RING_F_SP_ENQ|RING_F_SC_DEQ);
+
+		if(rx_rings[i] == NULL) {
+			rte_exit(EXIT_FAILURE, "Cannot create the rings on socket %d\n", rte_socket_id());
+		}
+	}
+}
+
+// clear all DPDK structures allocated
 void clean_hugepages() {
-    rte_ring_free(rx_ring);
+	for(uint32_t i = 0; i < nr_queues; i++) {
+		rte_ring_free(rx_rings[i]);
+	}
+	
 	rte_free(tcp_control_blocks);
 	rte_mempool_free(pktmbuf_pool);
 }

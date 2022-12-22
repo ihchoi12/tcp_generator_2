@@ -21,14 +21,15 @@
 #include <rte_cfgfile.h>
 #include <rte_mempool.h>
 
-/* Constants */
-#define EPSILON						0.00001
-#define MAXSTRLEN					128
+// Constants
+#define EPSILON				0.00001
+#define MAXSTRLEN			128
 #define IPV4_ADDR(a, b, c, d)		(((d & 0xff) << 24) | ((c & 0xff) << 16) | ((b & 0xff) << 8) | (a & 0xff))
 
 typedef struct lcore_parameters {
-	uint16_t portid;
 	uint8_t qid;
+	uint16_t portid;
+	uint64_t nr_elements;
 } __rte_cache_aligned lcore_param;
 
 typedef struct timestamp_node_t {
@@ -36,7 +37,6 @@ typedef struct timestamp_node_t {
 	uint64_t thread_id;
 	uint64_t ack_dup;
 	uint64_t ack_empty;
-	uint64_t nr_tx_pkts;
 	uint64_t timestamp_rx;
 	uint64_t timestamp_tx;
 	uint64_t nr_never_sent;
@@ -45,28 +45,30 @@ typedef struct timestamp_node_t {
 extern uint64_t rate;
 extern uint16_t portid;
 extern uint64_t duration;
-extern uint16_t nr_apps;
 extern uint64_t nr_flows;
-extern uint64_t nr_executions;
+extern uint64_t nr_queues;
+extern uint16_t nr_servers;
 extern uint32_t frame_size;
+extern uint32_t min_lcores;
+extern uint64_t nr_executions;
 extern uint32_t tcp_payload_size;
 
 extern uint64_t TICKS_PER_US;
-extern uint16_t *flow_indexes;
-extern uint64_t *interarrival_gap;
+extern uint16_t **flow_indexes_array;
+extern uint64_t **interarrival_array;
 
-extern struct rte_ether_addr dst_eth_addr;
-extern struct rte_ether_addr src_eth_addr;
+extern uint16_t dst_tcp_port;
 extern uint32_t dst_ipv4_addr;
 extern uint32_t src_ipv4_addr;
-extern uint16_t dst_tcp_port;
+extern struct rte_ether_addr dst_eth_addr;
+extern struct rte_ether_addr src_eth_addr;
 
 extern volatile uint8_t quit_rx;
 extern volatile uint8_t quit_tx;
 extern volatile uint8_t quit_rx_ring;
 
-extern node_t *incoming;
-extern uint64_t incoming_idx;
+extern node_t **incoming_array;
+extern uint64_t *incoming_idx_array;
 
 void clean_heap();
 void wait_timeout();
