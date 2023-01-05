@@ -111,21 +111,21 @@ struct rte_mbuf* create_syn_packet(uint16_t i) {
 	return pkt;
 }
 
-/* Create the TCP ACK packet */
+// Create the TCP ACK packet
 struct rte_mbuf *create_ack_packet(uint16_t i) {
-	/* allocate TCP ACK packet in the hugepages */
+	// allocate TCP ACK packet in the hugepages
 	struct rte_mbuf* pkt = rte_pktmbuf_alloc(pktmbuf_pool);
 	if(pkt == NULL) {
 		rte_exit(EXIT_FAILURE, "Error to alloc a rte_mbuf.\n");
 	}
 
-	/* ensure that IP/TCP checksum offloadings */
+	// ensure that IP/TCP checksum offloadings
 	pkt->ol_flags |= (RTE_MBUF_F_TX_IPV4 | RTE_MBUF_F_TX_IP_CKSUM | RTE_MBUF_F_TX_TCP_CKSUM);
 
-	/* get control block for the flow */
+	// get control block for the flow
 	tcp_control_block_t *block = &tcp_control_blocks[i];
 
-	/* fill Ethernet information */
+	// fill Ethernet information
 	struct rte_ether_hdr *eth_hdr = (struct rte_ether_hdr *) rte_pktmbuf_mtod(pkt, struct ether_hdr*);
 	eth_hdr->dst_addr = dst_eth_addr;
 	eth_hdr->src_addr = src_eth_addr;
