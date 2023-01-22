@@ -93,7 +93,7 @@ int process_rx_pkt(struct rte_mbuf *pkt, node_t *incoming, uint64_t *incoming_id
 	uint64_t *payload = (uint64_t *)(((uint8_t*) tcp_hdr) + ((tcp_hdr->data_off >> 4)*4));
 	uint64_t t0 = payload[0];
 	uint64_t t1 = payload[1];
-	throughputs[(((t - starting_point) / 1000000)/THROUGHPUT_INTERVAL)]++;
+	throughputs[(((t1 - starting_point) / 1000000)/THROUGHPUT_INTERVAL)]++;
 	// fill the node previously allocated
 	node_t *node = &incoming[(*incoming_idx)++];
 	node->flow_id = payload[2];
