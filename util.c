@@ -68,6 +68,7 @@ void create_interarrival_array() {
 		if(interarrival_array[i] == NULL) {
 			rte_exit(EXIT_FAILURE, "Cannot alloc the interarrival_gap array.\n");
 		}
+		
 		uint64_t *interarrival_gap = interarrival_array[i];
 		if(distribution == UNIFORM_VALUE) {
 			for(uint64_t j = 0; j < nr_elements_per_queue; j++) {
@@ -139,14 +140,17 @@ int app_parse_args(int argc, char **argv) {
 		// distribution
 		case 'd':
 			if(strcmp(optarg, "uniform") == 0) {
-				// Uniform distribution 
+				// Uniform distribution
 				distribution = UNIFORM_VALUE;
 			} else if(strcmp(optarg, "exponential") == 0) {
+				// Exponential distribution
 				distribution = EXPONENTIAL_VALUE;
 			} else {
 				usage(prgname);
 				rte_exit(EXIT_FAILURE, "Invalid arguments.\n");
 			}
+			break;
+			
 		// rate (pps)
 		case 'r':
 			rate = process_int_arg(optarg);

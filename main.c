@@ -231,7 +231,7 @@ static int lcore_rx(void *arg) {
 	struct rte_ring *rx_ring = rx_rings[qid];
 	
 	while(!quit_rx) {
-		// retrieve packets from the NIC
+		// retrieve the packets from the NIC
 		nb_rx = rte_eth_rx_burst(portid, qid, pkts, BURST_SIZE);
 
 		// retrive the current timestamp
