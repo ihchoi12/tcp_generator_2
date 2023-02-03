@@ -20,7 +20,7 @@ static uint32_t process_int_arg(const char *arg) {
 // Allocate all nodes for incoming packets (+ 20%)
 void allocate_incoming_nodes() {
 	uint64_t rate_per_queue = rate/nr_queues;
-	uint64_t nr_elements_per_queue = (2 * rate_per_queue * duration) * 1.2;
+	uint64_t nr_elements_per_queue = (rate_per_queue * duration * nr_executions) * 1.2;
 
 	incoming_array = (node_t**) malloc(nr_queues * sizeof(node_t*));
 	if(incoming_array == NULL) {
@@ -49,9 +49,9 @@ void create_interarrival_array() {
 	uint64_t rate_per_queue = rate/nr_queues;
 	double lambda;
 	if(distribution == UNIFORM_VALUE) {
-		lambda = (1.0/rate_per_queue) * 1000000.0;
+		lambda = (1.0/(double)rate_per_queue) * (double)BILLION;
 	} else if(distribution == EXPONENTIAL_VALUE) {
-		lambda = 1.0/(1000000.0/rate_per_queue);
+		lambda = 1.0/((double)BILLION/(double)rate_per_queue);
 	} else {
 		rte_exit(EXIT_FAILURE, "Cannot define the interarrival distribution.\n");
 	}
@@ -72,11 +72,11 @@ void create_interarrival_array() {
 		uint64_t *interarrival_gap = interarrival_array[i];
 		if(distribution == UNIFORM_VALUE) {
 			for(uint64_t j = 0; j < nr_elements_per_queue; j++) {
-				interarrival_gap[j] = lambda * TICKS_PER_US;
+				interarrival_gap[j] = lambda;
 			}
 		} else {
 			for(uint64_t j = 0; j < nr_elements_per_queue; j++) {
-				interarrival_gap[j] = sample(lambda) * TICKS_PER_US;
+				interarrival_gap[j] = sample(lambda);
 			}
 		}
 	} 
@@ -86,7 +86,7 @@ void create_interarrival_array() {
 void create_flow_indexes_array() {
 	uint32_t nbits = (uint32_t) log2(nr_queues);
 	uint64_t rate_per_queue = rate/nr_queues;
-	uint64_t nr_elements_per_queue = 2 * rate_per_queue * duration;
+	uint64_t nr_elements_per_queue = rate_per_queue * duration * nr_executions;
 
 	flow_indexes_array = (uint16_t**) malloc(nr_queues * sizeof(uint16_t*));
 	if(flow_indexes_array == NULL) {
@@ -111,6 +111,7 @@ void clean_heap() {
 	free(incoming_idx_array);
 	free(flow_indexes_array);
 	free(interarrival_array);
+	free(throughputs);
 }
 
 // Usage message
@@ -134,6 +135,7 @@ int app_parse_args(int argc, char **argv) {
 	char **argvopt;
 	char *prgname = argv[0];
 
+	nr_executions = 2;
 	argvopt = argv;
 	while ((opt = getopt(argc, argvopt, "d:r:f:s:q:p:t:c:o:")) != EOF) {
 		switch (opt) {
@@ -210,17 +212,23 @@ int app_parse_args(int argc, char **argv) {
 
 // Wait for the duration parameter
 void wait_timeout() {
-	uint64_t t0 = rte_rdtsc();
-	while((rte_rdtsc() - t0) < (2 * duration * 1000000 * TICKS_PER_US)) { }
-
-	// wait for remaining
-	t0 = rte_rdtsc_precise();
-	while((rte_rdtsc() - t0) < (5 * 1000000 * TICKS_PER_US)) { }
-
-	// set quit flag for all internal cores
+	uint64_t t0 = get_time_ns();
+	while(get_time_ns() - t0 < duration * nr_executions * BILLION) { }
+	/* set quit flag for all internal cores */
 	quit_rx = 1;
 	quit_tx = 1;
 	quit_rx_ring = 1;
+	// uint64_t t0 = rte_rdtsc();
+	// while((rte_rdtsc() - t0) < (duration * nr_executions * 1000000 * TICKS_PER_US)) { }
+
+	// /* wait for remaining */
+	// t0 = rte_rdtsc_precise();
+	// while((rte_rdtsc() - t0) < (5 * 1000000 * TICKS_PER_US)) { }
+	
+	// /* set quit flag for all internal cores */
+	// quit_rx = 1;
+	// quit_tx = 1;
+	// quit_rx_ring = 1;
 }
 
 // Compare two double values (for qsort function)
@@ -251,16 +259,33 @@ void print_stats_output() {
 		node_t *cur;
 		for(; j < incoming_idx; j++) {
 			cur = &incoming[j];
-
+			if(cur->timestamp_rx < cur->timestamp_tx){
+				continue;
+			}
 			fprintf(fp, "%lu\t%lu\n",
 				cur->flow_id,
-				((uint64_t)((cur->timestamp_rx - cur->timestamp_tx)/((double)TICKS_PER_US/1000)))
+				(cur->timestamp_rx - cur->timestamp_tx)
+				// ((uint64_t)((cur->timestamp_rx - cur->timestamp_tx)/((double)TICKS_PER_US/1000)))
 			);
 		}
 	}
 
 	// close the file
 	fclose(fp);
+
+
+	strcat(output_file, ".tput");
+	FILE *fp_tput = fopen(output_file, "w");
+	if(fp_tput == NULL) {
+		rte_exit(EXIT_FAILURE, "Cannot open the throughput tracking log file.\n");
+	}
+	/* drop the first 50% for warming up */
+	uint64_t i = duration * (1000 / THROUGHPUT_INTERVAL);
+	for(; i < duration * (1000 / THROUGHPUT_INTERVAL) * nr_executions; i++) {
+		fprintf(fp_tput, "%lu %lu\n", i * THROUGHPUT_INTERVAL, throughputs[i]);
+	}
+	/* close the file */
+	fclose(fp_tput);
 }
 
 // Process the config file
@@ -320,4 +345,30 @@ inline void fill_payload_pkt(struct rte_mbuf *pkt, uint32_t idx, uint64_t value)
 	uint8_t *payload = (uint8_t*) rte_pktmbuf_mtod_offset(pkt, uint8_t*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_tcp_hdr));
 
 	((uint64_t*) payload)[idx] = value;
+}
+
+// return current time in ns
+uint64_t get_time_ns()
+{
+	struct timespec ts;
+	clock_gettime( CLOCK_MONOTONIC, &ts);
+	return (uint64_t)ts.tv_nsec + ((uint64_t)ts.tv_sec * BILLION);
+}
+
+
+// Prepare throughput tracking array
+void prepare_throughput_tracking() {
+    uint64_t nr_ms = duration * (1000 / THROUGHPUT_INTERVAL) * nr_executions * 1.2;
+
+    throughputs = (uint64_t*) malloc(nr_ms * sizeof(uint64_t));
+    if(throughputs == NULL) {
+        rte_exit(EXIT_FAILURE, "Cannot alloc the throughputs array.\n");
+    }
+
+    for(uint64_t i = 0; i < nr_ms; i++) {
+		throughputs[i] = 0;
+		// printf("%lu\n", interarrival_gap[i]);
+    } 
+	// printf("TICKS_PER_US: %lu", TICKS_PER_US);
+	// exit(1);
 }

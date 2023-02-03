@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <time.h>
 
 #include "util.h"
 #include "tcp_util.h"
@@ -20,12 +21,15 @@ uint64_t nr_queues;
 uint16_t nr_servers;
 uint32_t min_lcores;
 uint32_t frame_size;
+uint64_t nr_executions;
 uint32_t tcp_payload_size;
+uint64_t starting_point;
 
 // General variables
 uint64_t TICKS_PER_US;
 uint16_t **flow_indexes_array;
 uint64_t **interarrival_array;
+uint64_t *throughputs;
 
 // Heap and DPDK allocated
 node_t **incoming_array;
@@ -97,14 +101,13 @@ int process_rx_pkt(struct rte_mbuf *pkt, node_t *incoming, uint64_t *incoming_id
 	uint64_t *payload = (uint64_t *)(((uint8_t*) tcp_hdr) + ((tcp_hdr->data_off >> 4)*4));
 	uint64_t t0 = payload[0];
 	uint64_t t1 = payload[1];
-
+	throughputs[(((t1 - starting_point) / 1000000)/THROUGHPUT_INTERVAL)]++;
 	// fill the node previously allocated
 	node_t *node = &incoming[(*incoming_idx)++];
 	node->flow_id = payload[2];
 	node->thread_id = payload[3];
 	node->timestamp_tx = t0;
 	node->timestamp_rx = t1;
-
 	return 1;
 }
 
@@ -117,7 +120,6 @@ void start_client(uint16_t portid) {
 	struct rte_mbuf *pkt;
 	tcp_control_block_t *block;
 	struct rte_mbuf *pkts[BURST_SIZE];
-
 	for(int i = 0; i < nr_flows; i++) {
 		// get the TCP control block for the flow
 		block = &tcp_control_blocks[i];
@@ -231,11 +233,10 @@ static int lcore_rx(void *arg) {
 	struct rte_ring *rx_ring = rx_rings[qid];
 	
 	while(!quit_rx) {
-		// retrieve the packets from the NIC
+		// retrieve packets from the NIC
 		nb_rx = rte_eth_rx_burst(portid, qid, pkts, BURST_SIZE);
-
-		// retrive the current timestamp
-		now = rte_rdtsc();
+		// retrive the current timestamp 
+		now = get_time_ns();
 		for(int i = 0; i < nb_rx; i++) {
 			// fill the timestamp into packet payload
 			fill_payload_pkt(pkts[i], 1, now);
@@ -262,8 +263,8 @@ static int lcore_tx(void *arg) {
 	struct rte_mbuf *pkts[BURST_SIZE];
 	uint16_t *flow_indexes = flow_indexes_array[qid];
 	uint64_t *interarrival_gap = interarrival_array[qid];
-	uint64_t next_tsc = rte_rdtsc() + interarrival_gap[i];
-
+	uint64_t next_tsc = get_time_ns() + interarrival_gap[i];
+	starting_point = next_tsc;
 	while(!quit_tx) { 
 		// reach the limit
 		if(unlikely(i >= nr_elements)) {
@@ -290,7 +291,7 @@ static int lcore_tx(void *arg) {
 		}
 
 		// unable to keep up with the requested rate
-		if(unlikely(rte_rdtsc() > (next_tsc + 5*TICKS_PER_US))) {
+		if(unlikely(get_time_ns() > next_tsc)) {
 			// count this batch as dropped
 			nr_never_sent++;
 			next_tsc += interarrival_gap[i++];
@@ -303,13 +304,14 @@ static int lcore_tx(void *arg) {
 		}
 
 		// sleep for while
-		while (rte_rdtsc() < next_tsc) {  }
+		while (get_time_ns() < next_tsc) {  }
 
 		// send the batch
 		nb_tx = rte_eth_tx_burst(portid, qid, pkts, nb_pkts);
 		if(unlikely(nb_tx != nb_pkts)) {
 			rte_exit(EXIT_FAILURE, "Cannot send the target packets.\n");
 		}
+		// printf("%lu %lu %lu\n", nb_tx, nb_pkts, total_tx);
 
 		// update the counter
 		nb_pkts = 0;
@@ -347,7 +349,8 @@ int main(int argc, char **argv) {
 
 	// create interarrival array
 	create_interarrival_array();
-	
+	// prepare throughput tracking
+	prepare_throughput_tracking();
 	// initialize TCP control blocks
 	init_tcp_blocks();
 
@@ -362,7 +365,7 @@ int main(int argc, char **argv) {
 	for(int i = 0; i < nr_queues; i++) {
 		lcore_params[i].portid = portid;
 		lcore_params[i].qid = i;
-		lcore_params[i].nr_elements = (rate/nr_queues) * 2 * duration;
+		lcore_params[i].nr_elements = (rate/nr_queues) * duration * nr_executions;
 
 		id_lcore = rte_get_next_lcore(id_lcore, 1, 1);
 		rte_eal_remote_launch(lcore_rx_ring, (void*) &lcore_params[i], id_lcore);
